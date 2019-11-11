@@ -171,36 +171,10 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     eh_sender = eh_client.add_sender(partition="0")
     eh_client.run()
     eh_sender.send(EventData(json.dumps(webhook)))
-    logger.info(f"Sent event with VM Health Probe Status: {webhook['data']['status']}")
-    logger.debug(f"sending event to {amqp_uri}, {json.dumps(webhook)}")
-    '''
-    headers = get_http_header(namespace, event_hub, user, key)
-    params = get_http_params()
-    uri = f"https://{namespace}.servicebus.windows.net/{event_hub}"
-    r = requests.post(url=uri, headers=headers, params=params, data=json.dumps(webhook))
-    logger.debug(f"POST returned {r}")
-    '''
+    logger.info(f"sending event to {amqp_uri}, {json.dumps(webhook)}")
     date = datetime.datetime.now()
     return func.HttpResponse(
         json.dumps({
             'status': 'SUCCESS'
         })
     )
-    '''
-    name = req.params.get('name')
-    if not name:
-        try:
-            req_body = req.get_json()
-        except ValueError:
-            pass
-        else:
-            name = req_body.get('name')
-
-    if name:
-        return func.HttpResponse(f"Hello {name}! Time is now {date}")
-    else:
-        return func.HttpResponse(
-             "Please pass a name on the query string or in the request body",
-             status_code=400
-        )
-    '''
