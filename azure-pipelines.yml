@@ -11,7 +11,7 @@ variables:
   azureSubscription: '2f24ac51-a138-444f-af72-82cfebbbc151'
 
   # Function app name
-  functionAppName: 'func1724'
+  functionAppName: $(function_app_name)
 
   # Agent VM image name
   vmImageName: 'ubuntu-latest'
