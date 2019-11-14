@@ -128,6 +128,19 @@ def parse_webhook_data(webhook=None):
     return (json.loads(data))
 
 
+def check_keys(d, *keys):
+    if not isinstance(d, dict) or len(keys) == 0:
+        return False
+    
+    dt = d
+    for key in keys:
+        try:
+            dt = dt[key]
+        except KeyError:
+            return False
+    return True
+
+
 def main(req: func.HttpRequest) -> func.HttpResponse:
     logger = logging.getLogger(__name__)
     formatter = logging.Formatter(
@@ -155,6 +168,28 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     logger.debug(f"method={req.method}, url={req.url}, params={req.params}")
     logger.debug(f"body={req.get_json()}")
 
+    # Handle WebHook
+    webhook = req.get_json()
+    # Get resource information specifically tags if this is an alert
+    resource_id = None
+    if check_keys(webhook, 'data', 'context', 'resourceId'):
+        resource_id = webhook['data']['context']['resourceId']
+    elif check_keys('data', 'context', 'activityLog', 'resourceId'):
+        resource_id = webhook['data']['context']['activityLog']['resourceId']
+    elif check_keys('data', 'context', 'scope'):
+        resource_id = webhook['data']['context']['scope']
+
+    if resource_id:
+        resource_client = ResourceManagementClient(credentials, subscription_id)
+        resource = resource_client.resources.get_by_id(resource_id, api_version='2018-06-01')
+        if resource.tags:
+            webhook['tags'] = resource.tags
+            logger.info(f"adding tags {resource.tags}")
+        else:
+            logger.info(f"no tags found in resource {resource_id}")
+    else:
+        logger.info("no resource_id found in webhook")
+
     # Key Vault stuff
     kv_mgmt_client = KeyVaultManagementClient(credentials, subscription_id)
     kv_client = KeyVaultClient(credentials)
@@ -163,8 +198,6 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     user = get_kv_secret(kv_client, 'EventHubKeyName')
     key = get_kv_secret(kv_client, 'EventHubKey')
 
-    # Handle WebHook
-    webhook = req.get_json()
     amqp_uri = f"https://{namespace}.servicebus.windows.net/{event_hub}"
     eh_client = EventHubClient(
         amqp_uri, debug=False, username=user, password=key)
