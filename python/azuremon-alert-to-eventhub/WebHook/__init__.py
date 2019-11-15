@@ -179,7 +179,8 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 logger.info(f"adding tags {resource.tags}")
             else:
                 logger.info(f"no tags found in resource {resource_id}")
-        except 
+        except:
+            logger.error(f"received exception from ResourceManagementClient for {resource_id}")
     else:
         logger.info("no resource_id found in webhook")
 
