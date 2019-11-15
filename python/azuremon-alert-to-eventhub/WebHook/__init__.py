@@ -17,22 +17,13 @@ import adal
 def get_azure_credentials():
     from msrestazure.azure_active_directory import MSIAuthentication
     logger = logging.getLogger(__name__)
-    logger.debug("starting")
     credentials = MSIAuthentication()
-    logger.debug("got credentials")
-    # Issue with subscription_client.subscriptions.list() iteration hanging,
-    # using this an APP_SETTING instead
-    '''
     subscription_client = SubscriptionClient(credentials)
-    logger.debug("got subscription_client")
-    for x in subscription_client.subscriptions.list():
-        logger.debug(x)
-    logger.debug("done printing list")
     subscription = next(subscription_client.subscriptions.list())
-    logger.debug("got subscription")
     subscription_id = subscription.subscription_id
     '''
     subscription_id = os.environ['AZURE_SUBSCRIPTION_ID']
+    '''
     logger.debug(f"returning sub_id --> {subscription_id}")
     return credentials, subscription_id
 
@@ -181,12 +172,14 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
     if resource_id:
         resource_client = ResourceManagementClient(credentials, subscription_id)
-        resource = resource_client.resources.get_by_id(resource_id, api_version='2018-06-01')
-        if resource.tags:
-            webhook['tags'] = resource.tags
-            logger.info(f"adding tags {resource.tags}")
-        else:
-            logger.info(f"no tags found in resource {resource_id}")
+        try:
+            resource = resource_client.resources.get_by_id(resource_id, api_version='2018-06-01')
+            if resource.tags:
+                webhook['tags'] = resource.tags
+                logger.info(f"adding tags {resource.tags}")
+            else:
+                logger.info(f"no tags found in resource {resource_id}")
+        except 
     else:
         logger.info("no resource_id found in webhook")
 
