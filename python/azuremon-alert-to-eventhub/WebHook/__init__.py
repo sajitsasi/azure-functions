@@ -204,6 +204,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     date = datetime.datetime.now()
     return func.HttpResponse(
         json.dumps({
+            'date': date,
             'status': 'SUCCESS'
         })
     )
