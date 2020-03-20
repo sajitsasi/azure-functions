@@ -18,12 +18,12 @@ def get_azure_credentials():
     from msrestazure.azure_active_directory import MSIAuthentication
     logger = logging.getLogger(__name__)
     credentials = MSIAuthentication()
+    '''
     subscription_client = SubscriptionClient(credentials)
     subscription = next(subscription_client.subscriptions.list())
     subscription_id = subscription.subscription_id
     '''
     subscription_id = os.environ['AZURE_SUBSCRIPTION_ID']
-    '''
     logger.debug(f"returning sub_id --> {subscription_id}")
     return credentials, subscription_id
 
