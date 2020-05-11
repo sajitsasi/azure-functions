@@ -201,7 +201,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     eh_client.run()
     eh_sender.send(EventData(json.dumps(webhook)))
     logger.info(f"sending event to {amqp_uri}, {json.dumps(webhook)}")
-    date = datetime.datetime.now()
+    date = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")
     return func.HttpResponse(
         json.dumps({
             'date': date,
