@@ -130,3 +130,6 @@ local.settings.json
 sp.json
 .python_packages
 .vscode
+testenv/
+sp.json
+sp.vars

@@ -1,12 +1,24 @@
+############################################################################
+# This is demo code and not intended for use in production.  As such this
+# code demonstrates how to send events from an Azure Function to an
+# Event Hub.
+#
+# USE AT YOUR OWN RISK!!!
+#
+# Author: Sajit Sasi
+# Author Email: sajit.sasi@microsoft.com
+############################################################################
 import logging
 
 import azure.functions as func
 from azure.mgmt.resource import ResourceManagementClient, SubscriptionClient
 from azure.mgmt.keyvault import KeyVaultManagementClient
-from azure.keyvault import KeyVaultClient, KeyVaultId, KeyVaultAuthentication
+#from azure.keyvault import KeyVaultClient, KeyVaultId, KeyVaultAuthentication
 from msrestazure.azure_cloud import AZURE_PUBLIC_CLOUD
 from msrestazure.azure_active_directory import MSIAuthentication
-from azure.eventhub import EventHubClient, Sender, EventData
+from azure.eventhub import EventHubProducerClient, EventData
+from azure.identity import DefaultAzureCredential
+from azure.keyvault.secrets import SecretClient
 import os
 import json
 import requests
@@ -29,7 +41,7 @@ def get_azure_credentials():
 
 
 def get_local_credentials(resource=None):
-    from msrestazure.azure_active_directory import AdalAuthentication
+    from azure.common.credentials import ServicePrincipalCredentials
     logger = logging.getLogger(__name__)
     data = json.load(open("./sp.json"))
     if not ('clientId' in data or 'clientSecret' in data or
@@ -41,28 +53,21 @@ def get_local_credentials(resource=None):
         logger.debug(
             f"found clientId={data['clientId']} in sub={data['subscriptionId']}")
 
-    if not resource:
-        resource = "https://management.core.windows.net"
-    server = resource + '/' + data['tenantId']
-    context = adal.AuthenticationContext(server)
-    credentials = AdalAuthentication(
-        context.acquire_token_with_client_credentials,
-        AZURE_PUBLIC_CLOUD.endpoints.active_directory_resource_id,
-        data['clientId'],
-        data['clientSecret']
-    )
-    return credentials, data['subscriptionId']
-
-
-def get_kv_secret(client=None, secret_key=None):
-    logger = logging.getLogger(__name__)
-    if not client or not secret_key:
-        logger.error("no client or secret specified")
-        return None
-
-    vault_url = os.environ['KEY_VAULT_URI']
-    secret = client.get_secret(vault_url, secret_key, KeyVaultId.version_none)
-    return secret.value
+    os.environ['AZURE_TENANT_ID'] = data['tenantId']
+    os.environ['AZURE_CLIENT_ID'] = data['clientId']
+    os.environ['AZURE_CLIENT_SECRET'] = data['clientSecret']
+    os.environ['AZURE_SUBSCRIPTION_ID'] = data['subscriptionId']
+    tenant_id = data['tenantId']
+    client_id = data['clientId']
+    client_secret = data['clientSecret']
+    subscription_id = data['subscriptionId']
+    credential = ServicePrincipalCredentials(
+        tenant=tenant_id,
+        client_id=client_id,
+        secret=client_secret)
+    kv_credential = DefaultAzureCredential(
+        exclude_managed_identity_credential=True)
+    return credential, kv_credential, data['subscriptionId']
 
 
 def get_sas_token(namespace, event_hub, user, key):
@@ -122,7 +127,7 @@ def parse_webhook_data(webhook=None):
 def check_keys(d, *keys):
     if not isinstance(d, dict) or len(keys) == 0:
         return False
-    
+
     dt = d
     for key in keys:
         try:
@@ -148,12 +153,12 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         filehandler.setFormatter(formatter)
         logger.addHandler(filehandler)
         logger.setLevel(logging.DEBUG)
-        credentials, subscription_id = get_local_credentials()
+        credentials, kv_credentials, subscription_id = get_local_credentials()
     else:
         console = logging.StreamHandler()
         console.setLevel(logging.INFO)
         console.setFormatter(formatter)
-        credentials, subscription_id = get_azure_credentials()
+        credentials, kv_credentials, subscription_id = get_azure_credentials()
 
     logger.debug('Python HTTP trigger function processed a request.')
     logger.debug(f"method={req.method}, url={req.url}, params={req.params}")
@@ -163,44 +168,55 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     webhook = req.get_json()
     # Get resource information specifically tags if this is an alert
     resource_id = None
-    if check_keys(webhook, 'data', 'context', 'resourceId'):
-        resource_id = webhook['data']['context']['resourceId']
-    elif check_keys('data', 'context', 'activityLog', 'resourceId'):
-        resource_id = webhook['data']['context']['activityLog']['resourceId']
-    elif check_keys('data', 'context', 'scope'):
-        resource_id = webhook['data']['context']['scope']
-    elif check_keys('data', 'context', 'activityLog', 'authorization', 'scope'):
-        resource_id = webhook['data']['context']['activityLog']['authorization']['scope']
+    if "azureMonitorCommonAlertSchema" in webhook["schemaId"]:
+        if check_keys(webhook, 'data', 'essentials', 'alertTargetIDs'):
+            resource_id = webhook["data"]["essentials"]["alertTargetIDs"]
 
     if resource_id:
-        resource_client = ResourceManagementClient(credentials, subscription_id)
+        resource_client = ResourceManagementClient(
+            credentials, subscription_id)
         try:
-            resource = resource_client.resources.get_by_id(resource_id, api_version='2018-06-01')
+            resource = resource_client.resources.get_by_id(
+                resource_id, api_version='2018-06-01')
             if resource.tags:
-                webhook['tags'] = resource.tags
+                webhook['resource_tags'] = resource.tags
                 logger.info(f"adding tags {resource.tags}")
             else:
                 logger.info(f"no tags found in resource {resource_id}")
         except:
-            logger.error(f"received exception from ResourceManagementClient for {resource_id}")
+            logger.error(
+                f"received exception from ResourceManagementClient for {resource_id}")
     else:
         logger.info("no resource_id found in webhook")
 
+    subscription_client = SubscriptionClient(credentials)
+    subscription = next(subscription_client.subscriptions.list())
+    webhook['subscription_tags'] = subscription.tags
+    logger.info(f"added subscription tags={subscription.tags}")
+
     # Key Vault stuff
     kv_mgmt_client = KeyVaultManagementClient(credentials, subscription_id)
-    kv_client = KeyVaultClient(credentials)
-    namespace = get_kv_secret(kv_client, 'EventHubNamespace')
-    event_hub = get_kv_secret(kv_client, 'EventHub')
-    user = get_kv_secret(kv_client, 'EventHubKeyName')
-    key = get_kv_secret(kv_client, 'EventHubKey')
+#    kv_client = KeyVaultClient(credentials)
+    kv_client = SecretClient(
+        vault_url=os.environ['KEY_VAULT_URI'], credential=kv_credentials)
+    namespace = kv_client.get_secret('EventHubNamespace').value
+    event_hub = kv_client.get_secret('EventHub').value
+    user = kv_client.get_secret('EventHubKeyName').value
+    key = kv_client.get_secret('EventHubKey').value
+    # Check whether connection string exists in Key Vault
+    kv_prop = kv_client.list_properties_of_secrets()
+    if 'EventHubConnectionString' in [prop.name for prop in kv_prop]:
+        conn_string = get_kv_secret(
+            kv_client, 'EventHubConnectionString').value
+    else:
+        conn_string = f"Endpoint=sb://{namespace}.servicebus.windows.net/;SharedAccessKeyName={user};SharedAccessKey={key}"
 
-    amqp_uri = f"https://{namespace}.servicebus.windows.net/{event_hub}"
-    eh_client = EventHubClient(
-        amqp_uri, debug=False, username=user, password=key)
-    eh_sender = eh_client.add_sender(partition="0")
-    eh_client.run()
-    eh_sender.send(EventData(json.dumps(webhook)))
-    logger.info(f"sending event to {amqp_uri}, {json.dumps(webhook)}")
+    eh_prod_client = EventHubProducerClient.from_connection_string(
+        conn_string, eventhub_name=event_hub)
+    event_data_batch = eh_prod_client.create_batch()
+    event_data_batch.add(EventData(json.dumps(webhook)))
+    eh_prod_client.send_batch(event_data_batch)
+    logger.info(f"sending event to {namespace}, {json.dumps(webhook)}")
     date = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")
     return func.HttpResponse(
         json.dumps({
