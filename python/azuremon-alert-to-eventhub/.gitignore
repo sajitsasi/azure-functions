@@ -129,7 +129,8 @@ appsettings.json
 local.settings.json
 sp.json
 .python_packages
-.vscode
-testenv/
+
+.venv/
 sp.json
 sp.vars
+.vscode/
