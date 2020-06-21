@@ -36,8 +36,9 @@ def get_azure_credentials():
     subscription_id = subscription.subscription_id
     '''
     subscription_id = os.environ['AZURE_SUBSCRIPTION_ID']
+    kv_credential = DefaultAzureCredential()
     logger.debug(f"returning sub_id --> {subscription_id}")
-    return credentials, subscription_id
+    return credentials, kv_credential, subscription_id
 
 
 def get_local_credentials(resource=None):
@@ -60,7 +61,6 @@ def get_local_credentials(resource=None):
     tenant_id = data['tenantId']
     client_id = data['clientId']
     client_secret = data['clientSecret']
-    subscription_id = data['subscriptionId']
     credential = ServicePrincipalCredentials(
         tenant=tenant_id,
         client_id=client_id,
