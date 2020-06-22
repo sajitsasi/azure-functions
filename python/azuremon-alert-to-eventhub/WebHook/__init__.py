@@ -177,10 +177,10 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             credentials, subscription_id)
         try:
             resource = resource_client.resources.get_by_id(
-                resource_id, api_version='2018-06-01')
+                resource_id[0], api_version='2018-06-01')
             if resource.tags:
-                webhook['resource_tags'] = resource.tags
-                logger.info(f"adding tags {resource.tags}")
+                #                webhook['resource_tags'] = resource.tags
+                logger.info(f"found resource tags {resource.tags}")
             else:
                 logger.info(f"no tags found in resource {resource_id}")
         except:
@@ -191,7 +191,10 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
     subscription_client = SubscriptionClient(credentials)
     subscription = next(subscription_client.subscriptions.list())
-    webhook['subscription_tags'] = subscription.tags
+    webhook['additionalData'] = {}
+    if 'motsID' in subscription.tags.keys():
+        webhook['additionalData']['motsID'] = subscription.tags['motsID']
+
     logger.info(f"added subscription tags={subscription.tags}")
 
     # Key Vault stuff
