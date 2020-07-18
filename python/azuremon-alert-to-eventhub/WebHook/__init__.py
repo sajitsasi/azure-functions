@@ -17,7 +17,7 @@ from azure.mgmt.keyvault import KeyVaultManagementClient
 from msrestazure.azure_cloud import AZURE_PUBLIC_CLOUD
 from msrestazure.azure_active_directory import MSIAuthentication
 from azure.eventhub import EventHubProducerClient, EventData
-from azure.identity import DefaultAzureCredential
+from azure.identity import DefaultAzureCredential, ManagedIdentityCredential
 from azure.keyvault.secrets import SecretClient
 import os
 import json
@@ -29,7 +29,7 @@ import adal
 def get_azure_credentials():
     from msrestazure.azure_active_directory import MSIAuthentication
     logger = logging.getLogger(__name__)
-    credentials = MSIAuthentication()
+    credentials = ManagedIdentityCredential()
     '''
     subscription_client = SubscriptionClient(credentials)
     subscription = next(subscription_client.subscriptions.list())
@@ -197,25 +197,33 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
     logger.info(f"added subscription tags={subscription.tags}")
 
-    # Key Vault stuff
-    kv_mgmt_client = KeyVaultManagementClient(credentials, subscription_id)
-#    kv_client = KeyVaultClient(credentials)
-    kv_client = SecretClient(
-        vault_url=os.environ['KEY_VAULT_URI'], credential=kv_credentials)
-    namespace = kv_client.get_secret('EventHubNamespace').value
-    event_hub = kv_client.get_secret('EventHub').value
-    user = kv_client.get_secret('EventHubKeyName').value
-    key = kv_client.get_secret('EventHubKey').value
-    # Check whether connection string exists in Key Vault
-    kv_prop = kv_client.list_properties_of_secrets()
-    if 'EventHubConnectionString' in [prop.name for prop in kv_prop]:
-        conn_string = get_kv_secret(
-            kv_client, 'EventHubConnectionString').value
+    if 'EVENT_HUB_NAMESPACE' in os.environ and 'EVENT_HUB' in os.environ:
+        namespace = os.environ['EVENT_HUB_NAMESPACE']
+        event_hub = os.environ['EVENT_HUB']
+        eh_prod_client = EventHubProducerClient(
+            fully_qualified_namespace=namespace,
+            eventhub_name=eh_name,
+            credential=credentials)
     else:
-        conn_string = f"Endpoint=sb://{namespace}.servicebus.windows.net/;SharedAccessKeyName={user};SharedAccessKey={key}"
+        # Key Vault stuff
+        kv_mgmt_client = KeyVaultManagementClient(credentials, subscription_id)
+        kv_client = SecretClient(
+            vault_url=os.environ['KEY_VAULT_URI'],
+            credential=kv_credentials)
+        namespace = kv_client.get_secret('EventHubNamespace').value
+        event_hub = kv_client.get_secret('EventHub').value
+        user = kv_client.get_secret('EventHubKeyName').value
+        key = kv_client.get_secret('EventHubKey').value
+        # Check whether connection string exists in Key Vault
+        kv_prop = kv_client.list_properties_of_secrets()
+        if 'EventHubConnectionString' in [prop.name for prop in kv_prop]:
+            conn_string = get_kv_secret(
+                kv_client, 'EventHubConnectionString').value
+        else:
+            conn_string = f"Endpoint=sb://{namespace}.servicebus.windows.net/;SharedAccessKeyName={user};SharedAccessKey={key}"
 
-    eh_prod_client = EventHubProducerClient.from_connection_string(
-        conn_string, eventhub_name=event_hub)
+        eh_prod_client = EventHubProducerClient.from_connection_string(
+            conn_string, eventhub_name=event_hub)
     event_data_batch = eh_prod_client.create_batch()
     event_data_batch.add(EventData(json.dumps(webhook)))
     eh_prod_client.send_batch(event_data_batch)
