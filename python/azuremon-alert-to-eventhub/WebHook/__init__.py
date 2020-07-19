@@ -27,7 +27,6 @@ import adal
 
 
 def get_azure_credentials():
-    from msrestazure.azure_active_directory import MSIAuthentication
     logger = logging.getLogger(__name__)
     credentials = ManagedIdentityCredential()
     '''
@@ -148,17 +147,21 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     subscription_id = None
     kv_credentials = None
     kv_subscription_id = None
+    sub_cred = None
     if func_context == 'local':
         filehandler = logging.FileHandler('func.log')
         filehandler.setFormatter(formatter)
         logger.addHandler(filehandler)
         logger.setLevel(logging.DEBUG)
         credentials, kv_credentials, subscription_id = get_local_credentials()
+        sub_cred = credentials
     else:
+        from msrestazure.azure_active_directory import MSIAuthentication
         console = logging.StreamHandler()
         console.setLevel(logging.INFO)
         console.setFormatter(formatter)
         credentials, kv_credentials, subscription_id = get_azure_credentials()
+        sub_cred = MSIAuthentication()
 
     logger.debug('Python HTTP trigger function processed a request.')
     logger.debug(f"method={req.method}, url={req.url}, params={req.params}")
@@ -189,7 +192,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     else:
         logger.info("no resource_id found in webhook")
 
-    subscription_client = SubscriptionClient(credentials)
+    subscription_client = SubscriptionClient(sub_cred)
     subscription = next(subscription_client.subscriptions.list())
     webhook['additionalData'] = {}
     if 'motsID' in subscription.tags.keys():
@@ -202,7 +205,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         event_hub = os.environ['EVENT_HUB']
         eh_prod_client = EventHubProducerClient(
             fully_qualified_namespace=namespace,
-            eventhub_name=eh_name,
+            eventhub_name=event_hub,
             credential=credentials)
     else:
         # Key Vault stuff
