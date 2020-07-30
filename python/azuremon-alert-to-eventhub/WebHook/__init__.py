@@ -193,12 +193,19 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         logger.info("no resource_id found in webhook")
 
     subscription_client = SubscriptionClient(sub_cred)
-    subscription = next(subscription_client.subscriptions.list())
+    subscriptions = None
+    for sub in subscription_client.subscriptions.list():
+        if subscription_id == sub.subscription_id:
+            subscription = sub
+            break
     webhook['additionalData'] = {}
-    if 'motsID' in subscription.tags.keys():
+    if subscription and 'motsID' in subscription.tags.keys():
         webhook['additionalData']['motsID'] = subscription.tags['motsID']
-
-    logger.info(f"added subscription tags={subscription.tags}")
+        logger.info(f"added subscription tags={subscription.tags}")
+    elif not subscription:
+        logger.error(f"subscription not found via MSI for {subscription_id}")
+    else:
+        logger.info(f"motsID not found in {subscription_id} tags")
 
     if 'EVENT_HUB_NAMESPACE' in os.environ and 'EVENT_HUB' in os.environ:
         namespace = os.environ['EVENT_HUB_NAMESPACE']
