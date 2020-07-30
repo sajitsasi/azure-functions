@@ -193,7 +193,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         logger.info("no resource_id found in webhook")
 
     subscription_client = SubscriptionClient(sub_cred)
-    subscriptions = None
+    subscription = None
     for sub in subscription_client.subscriptions.list():
         if subscription_id == sub.subscription_id:
             subscription = sub
